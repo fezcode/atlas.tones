@@ -61,6 +61,9 @@ func main() {
 			pterm.Warning.Println("Usage: atlas.tones convert <input_mp3> [output_name]")
 			return
 		}
+		if !ensureFFmpeg() {
+			return
+		}
 		input := os.Args[2]
 		output := "output.m4r"
 		if len(os.Args) > 3 {
@@ -73,6 +76,9 @@ func main() {
 	case "install":
 		if len(os.Args) < 3 {
 			pterm.Warning.Println("Usage: atlas.tones install <category> [sound_title]")
+			return
+		}
+		if !ensureFFmpeg() {
 			return
 		}
 		installSound(categories, os.Args[2], getOptionalArg(3))
@@ -104,15 +110,142 @@ func syncRegistry() {
 	spinner.Success("Registry updated successfully!")
 }
 
+func getFFmpegPath() string {
+	path, err := exec.LookPath("ffmpeg")
+	if err == nil {
+		return path
+	}
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+	return filepath.Join(getStoragePath(), "ffmpeg" + ext)
+}
+
+func ensureFFmpeg() bool {
+	path, err := exec.LookPath("ffmpeg")
+	if err == nil {
+		pterm.Success.Printf("FFmpeg found in PATH: %s\n", path)
+		return true
+	}
+
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+	localPath := filepath.Join(getStoragePath(), "ffmpeg" + ext)
+	if _, err := os.Stat(localPath); err == nil {
+		pterm.Success.Printf("FFmpeg found locally: %s\n", localPath)
+		return true
+	}
+
+	pterm.Warning.Println("FFmpeg is required for MP3 to M4R conversion but was not found.")
+	
+	result, _ := pterm.DefaultInteractiveConfirm.WithDefaultText("Would you like to download a standalone FFmpeg binary now?").Show()
+	if result {
+		err := downloadFFmpeg(localPath)
+		if err != nil {
+			pterm.Error.Printf("Failed to download FFmpeg: %v\n", err)
+			pterm.Info.Println("Please download FFmpeg manually from https://ffmpeg.org/download.html and add it to your PATH.")
+			return false
+		}
+		pterm.Success.Printf("FFmpeg downloaded successfully to %s\n", localPath)
+		return true
+	}
+
+	pterm.Info.Println("Please download FFmpeg manually from https://ffmpeg.org/download.html and add it to your PATH to use the conversion feature.")
+	return false
+}
+
+func getFFmpegDownloadURL() (string, error) {
+	baseURL := "https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/"
+	
+	var assetName string
+	switch runtime.GOOS {
+	case "windows":
+		if runtime.GOARCH == "amd64" {
+			assetName = "win32-x64"
+		} else if runtime.GOARCH == "386" {
+			assetName = "win32-ia32"
+		}
+	case "darwin":
+		if runtime.GOARCH == "amd64" {
+			assetName = "darwin-x64"
+		} else if runtime.GOARCH == "arm64" {
+			assetName = "darwin-arm64"
+		}
+	case "linux":
+		if runtime.GOARCH == "amd64" {
+			assetName = "linux-x64"
+		} else if runtime.GOARCH == "arm64" {
+			assetName = "linux-arm64"
+		} else if runtime.GOARCH == "arm" {
+			assetName = "linux-arm"
+		} else if runtime.GOARCH == "386" {
+			assetName = "linux-ia32"
+		}
+	}
+
+	if assetName == "" {
+		return "", fmt.Errorf("unsupported OS/Arch combination: %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+
+	return baseURL + assetName, nil
+}
+
+func downloadFFmpeg(destPath string) error {
+	url, err := getFFmpegDownloadURL()
+	if err != nil {
+		return err
+	}
+
+	spinner, _ := pterm.DefaultSpinner.Start("Downloading FFmpeg binary (~20-30MB)...")
+	
+	os.MkdirAll(filepath.Dir(destPath), 0755)
+	
+	resp, err := http.Get(url)
+	if err != nil {
+		spinner.Fail()
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		spinner.Fail()
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	out, err := os.Create(destPath)
+	if err != nil {
+		spinner.Fail()
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		spinner.Fail()
+		return err
+	}
+
+	if runtime.GOOS != "windows" {
+		os.Chmod(destPath, 0755)
+	}
+
+	spinner.Success()
+	return nil
+}
+
 func convertMp3ToM4r(input, output string) {
 	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Converting %s to %s (trimmed to 30s)...", input, output))
-	_, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		spinner.Fail("Error: 'ffmpeg' not found. Please install ffmpeg.")
+
+	ffmpegPath := getFFmpegPath()
+	if ffmpegPath == "" {
+		spinner.Fail("Error: 'ffmpeg' not found.")
 		return
 	}
 
-	cmd := exec.Command("ffmpeg", "-i", input, "-t", "30", "-f", "mp4", "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-y", output)
+	cmd := exec.Command(ffmpegPath, "-i", input, "-t", "30", "-f", "mp4", "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-y", output)
 	if err := cmd.Run(); err != nil {
 		spinner.Fail(fmt.Sprintf("Conversion failed: %v", err))
 		return
@@ -242,7 +375,13 @@ func processAndInstall(s Sound) string {
 		
 		spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Converting %s to M4R...", s.Title))
 		
-		cmd := exec.Command("ffmpeg", "-i", finalPath, "-t", "30", "-f", "mp4", "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-y", m4rPath)
+		ffmpegPath := getFFmpegPath()
+		if ffmpegPath == "" {
+			spinner.Fail("Error: 'ffmpeg' not found.")
+			return "" // conversion failed
+		}
+
+		cmd := exec.Command(ffmpegPath, "-i", finalPath, "-t", "30", "-f", "mp4", "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-y", m4rPath)
 		if err := cmd.Run(); err != nil {
 			spinner.Fail(fmt.Sprintf("Conversion failed: %v", err))
 			return "" // conversion failed
