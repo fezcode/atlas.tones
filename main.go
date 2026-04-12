@@ -59,6 +59,7 @@ func main() {
 	case "convert":
 		if len(os.Args) < 3 {
 			pterm.Warning.Println("Usage: atlas.tones convert <input_mp3> [output_name]")
+			pterm.Info.Println("Example: atlas.tones convert my_song.mp3 \"My Ringtone\"")
 			return
 		}
 		if !ensureFFmpeg() {
@@ -75,7 +76,9 @@ func main() {
 		convertMp3ToM4r(input, output)
 	case "install":
 		if len(os.Args) < 3 {
-			pterm.Warning.Println("Usage: atlas.tones install <category> [sound_title]")
+			pterm.Warning.Println("Usage: atlas.tones install <category_name> [sound_title]")
+			pterm.Info.Println("Tip: Use 'atlas.tones list' to see available categories and sounds.")
+			pterm.Info.Println("Example: atlas.tones install \"Classic\" \"Marimba\"")
 			return
 		}
 		if !ensureFFmpeg() {
@@ -455,18 +458,32 @@ func getOptionalArg(index int) string {
 }
 
 func showHelp() {
-	pterm.DefaultHeader.WithFullWidth().WithBackgroundStyle(pterm.NewStyle(pterm.BgCyan)).WithTextStyle(pterm.NewStyle(pterm.FgBlack)).Println("Atlas Tones - Official iPhone Sound Catalog")
+	pterm.DefaultHeader.WithFullWidth().WithBackgroundStyle(pterm.NewStyle(pterm.BgCyan)).WithTextStyle(pterm.NewStyle(pterm.FgBlack)).Println("Atlas Tones - iPhone Sound Catalog")
 	
-	pterm.Info.Println("A CLI tool to download and prepare ringtones for your iPhone.")
+	pterm.Info.Println("Download, convert, and prepare ringtones and notification sounds for your iPhone.")
 	fmt.Println()
 	
+	pterm.DefaultSection.Println("COMMANDS")
 	tableData := pterm.TableData{
 		{"Command", "Description"},
-		{"atlas.tones list", "List all catalog sounds"},
-		{"atlas.tones sync", "Update catalog from FCDX CDN"},
-		{"atlas.tones convert <mp3> [name]", "Convert MP3 to M4R (Utility)"},
-		{"atlas.tones install <cat> [sound]", "Prepare catalog sound for iPhone"},
+		{"sync", "Download the latest sound catalog from the CDN."},
+		{"list", "Display all available categories and sounds in the catalog."},
+		{"install <cat> [sound]", "Download and prepare a sound (or entire category) for iPhone."},
+		{"convert <mp3> [name]", "Utility: Convert any local MP3 to iPhone-compatible M4R format."},
 	}
-	
 	pterm.DefaultTable.WithHasHeader().WithBoxed().WithData(tableData).Render()
+
+	fmt.Println()
+	pterm.DefaultSection.Println("USAGE EXAMPLES")
+	pterm.Info.Println("1. Update your catalog first:")
+	fmt.Println("   atlas.tones sync")
+	fmt.Println()
+	pterm.Info.Println("2. See what sounds are available:")
+	fmt.Println("   atlas.tones list")
+	fmt.Println()
+	pterm.Info.Println("3. Install a specific sound (e.g., 'Marimba' from 'Classic' category):")
+	fmt.Println("   atlas.tones install \"Classic\" \"Marimba\"")
+	fmt.Println()
+	pterm.Info.Println("4. Install ALL sounds from a category (e.g., 'Retro'):")
+	fmt.Println("   atlas.tones install \"Retro\"")
 }
