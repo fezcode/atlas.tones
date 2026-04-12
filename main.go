@@ -35,7 +35,7 @@ func main() {
 	setupStorage()
 
 	if len(os.Args) > 1 && (os.Args[1] == "-v" || os.Args[1] == "--version") {
-		pterm.Info.Printf("atlas.tones v%s\n", Version)
+		fmt.Printf("atlas.tones v%s\n", Version)
 		return
 	}
 
